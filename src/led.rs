@@ -1,8 +1,10 @@
+#[derive(Copy, Clone)]
 pub enum Led<T> {
     Single(T),
     Rgb(T, T, T),
 }
 
+#[derive(Clone)]
 pub enum Dtype {
     On,
     Off,
@@ -13,7 +15,7 @@ pub enum Dtype {
 }
 
 impl Dtype {
-    pub fn to_duty_cycle(&self) -> f64 {
+    pub fn to_cycle(&self) -> f64 {
         match self {
             Dtype::Cycle(val) => *val,
             Dtype::Percent(val) => f64::from(*val) / 100.0,
@@ -24,131 +26,148 @@ impl Dtype {
     }
 }
 
-impl Led<Dtype> {
-    pub fn to_duty_cycle(&self) -> Led<f64> {
+pub trait ToDutyCycle {
+    fn to_duty_cycle(&self) -> Led<f64>;
+}
+impl ToDutyCycle for Led<f64> {
+    fn to_duty_cycle(&self) -> Led<f64> { *self }
+}
+impl ToDutyCycle for Led<Dtype> {
+    fn to_duty_cycle(&self) -> Led<f64> {
         match self {
-            Led::Single(val) => Led::Single(val.to_duty_cycle()),
-            Led::Rgb(r, g, b) => Led::Rgb(r.to_duty_cycle(), g.to_duty_cycle(), b.to_duty_cycle()),
+            Led::Single(val) => Led::Single(val.to_cycle()),
+            Led::Rgb(r, g, b) => Led::Rgb(r.to_cycle(), g.to_cycle(), b.to_cycle()),
+            _ => unreachable!(),
+        }
+    }
+}
+impl Led<Dtype> {
+    pub fn get_off(&self) -> Led<Dtype> {
+        match self {
+            Led::Single(_) => Led::Single(Dtype::Off),
+            Led::Rgb(..) => Led::Rgb(Dtype::Off, Dtype::Off, Dtype::Off),
+            _ => unreachable!(),
         }
     }
 }
 
-// mod color {
-//     pub const RED: LedValue = LedValue::Rgb { r: 100, g: 0, b: 0 };
-//     pub const GREEN: LedValue = LedValue::Rgb { r: 0, g: 100, b: 0 };
-//     pub const BLUE: LedValue = LedValue::Rgb { r: 0, g: 0, b: 100 };
-//     pub const PURPLE: LedValue = LedValue::Rgb {
-//         r: 50,
-//         g: 40,
-//         b: 95,
-//     };
+use std::ops;
 
-//     enum RepType {
-//         Percentages(LedValue::Rgb),
-//         U8(LedValue::Rgb),
-//         Hex(String),
-//     }
+const THRESHOLD: f64 = 0.0001;
+fn cycle_to_dtype(cycle: f64) -> Dtype {
+    if cycle < THRESHOLD {
+        return Dtype::Off;
+    } else if cycle > 1.0 - THRESHOLD {
+        return Dtype::On;
+    } else {
+        return Dtype::Cycle(cycle);
+    }
+}
+impl Led<f64> {
+    pub fn as_dtype(&self) -> Led<Dtype> {
+        match self {
+            Led::Single(v) => Led::Single(cycle_to_dtype(*v)),
+            Led::Rgb(r,g,b) => {
+                Led::Rgb(cycle_to_dtype(*r), cycle_to_dtype(*g), cycle_to_dtype(*b))
+            },
+        }
+    }
+}
 
-//     fn to_duty_cycle(value: LedValue, divisor: f64) -> CycleValue {
-//         match value {
-//             White(v) => f64::from(v) / divisor,
-//             Rgb(v) => CycleValue::Rgb {
-//                 r: f64::from(v.r) / divisor,
-//                 g: f64::from(v.g) / divisor,
-//                 b: f64::from(v.b) / divisor,
-//             },
-//         }
-//     }
+impl ops::Add<f64> for Led<f64> {
+    type Output = Self;
+    fn add(self, other: f64) -> Self {
+        match self {
+            Led::Single(v) => Led::Single(v+other),
+            Led::Rgb(r,g,b) => Led::Rgb(r+other, g+other, b+other),
+        }
+    }
+}
+impl ops::Sub<f64> for Led<f64> {
+    type Output = Self;
+    fn sub(self, other: f64) -> Self {
+        match self {
+            Led::Single(v) => Led::Single(v-other),
+            Led::Rgb(r,g,b) => Led::Rgb(r-other, g-other, b-other),
+        }
+    }
+}
+impl ops::Mul<f64> for Led<f64> {
+    type Output = Self;
+    fn mul(self, other: f64) -> Self {
+        match self {
+            Led::Single(v) => Led::Single(v*other),
+            Led::Rgb(r,g,b) => Led::Rgb(r*other, g*other, b*other),
+        }
+    }
+}
+impl ops::Div<f64> for Led<f64> {
+    type Output = Self;
+    fn div(self, other: f64) -> Self {
+        match self {
+            Led::Single(v) => Led::Single(v/other),
+            Led::Rgb(r,g,b) => Led::Rgb(r/other, g/other, b/other),
+        }
+    }
+}
 
-//     impl RepType {
-//         fn convert(self) -> CycleValue {
-//             match self {
-//                 Percentages(v) => return to_duty_cycle(v, 100.0),
-//                 U8(v) => return to_duty_cycle(v, 256.0),
-//                 Hex(s) => todo!(),
-//             }
-//         }
-//     }
-// }
-
-// use rppal::gpio::{self, Gpio, OutputPin};
-
-// pub const FREQUENCY: f64 = 5000.0;
-
-// #[derive(Debug)]
-// pub struct Controller {
-//     w_pin: OutputPin,
-//     r_pin: OutputPin,
-//     g_pin: OutputPin,
-//     b_pin: OutputPin,
-// }
-
-// impl Controller {
-//     pub fn new(w_pin: u8, r_pin: u8, g_pin: u8, b_pin: u8) -> gpio::Result<Controller> {
-//         let gpio = Gpio::new()?;
-//         let w = gpio.get(w_pin)?.into_output();
-//         let r = gpio.get(r_pin)?.into_output();
-//         let g = gpio.get(g_pin)?.into_output();
-//         let b = gpio.get(b_pin)?.into_output();
-//         Ok(Controller {
-//             w_pin: w,
-//             r_pin: r,
-//             g_pin: g,
-//             b_pin: b,
-//         })
-//     }
-
-//     pub fn handle_request(&mut self, request: Request) /* -> gpio::Result<Option<Task>> */
-//     {
-//         match request {
-//             Request::Static(color) => self.set_color(color.convert()),
-//             Request::Blink(color, time_on, time_off) => {
-//                 self.set_color(color.convert());
-//                 todo!();
-//             }
-//             Request::Fade(color, time) => {
-//                 self.set_color(color.convert());
-//                 todo!();
-//             }
-//             Request::Sequence(colors, time) => {
-//                 self.set_color(colors[0].convert());
-//                 todo!();
-//             }
-//             Request::BlinkSequence(colors, time_on, time_off) => {
-//                 self.set_color(colors[0].convert());
-//                 todo!();
-//             }
-//             Request::FadeSequence(colors, time) => {
-//                 self.set_color(colors[0].convert());
-//                 todo!();
-//             }
-//             Request::Clear => self.turn_off(),
-//         }
-//         Ok(None)
-//     }
-
-//     pub fn turn_off(&mut self) {
-//         self.w_pin.set_high();
-//         self.r_pin.set_high();
-//         self.g_pin.set_high();
-//         self.b_pin.set_high();
-//     }
-
-//     pub fn set_color(&mut self, color: CycleValue) -> gpio::Result<()> {
-//         self.turn_off();
-
-//         match color {
-//             CycleValue::White(v) => match v {
-//                 0 => return Ok(()),
-//                 100 => self.w_pin.set_low(),
-//                 _ => self.w_pin.set_pwm_frequency(FREQUENCY, color)?,
-//             },
-//             CycleValue::Rgb { r, g, b } => {
-//                 self.r_pin.set_pwm_frequency(FREQUENCY, r)?;
-//                 self.g_pin.set_pwm_frequency(FREQUENCY, g)?;
-//                 self.b_pin.set_pwm_frequency(FREQUENCY, b)?;
-//             }
-//         };
-//         Ok(())
-//     }
-// }
+impl ops::Add<Led<f64>> for Led<f64> {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        match self {
+            Led::Single(v) => match other {
+                Led::Single(o_v) => Led::Single(v + o_v),
+                _ => unimplemented!(),
+            }
+            Led::Rgb(r,g,b) => match other {
+                Led::Rgb(o_r, o_g, o_b) => Led::Rgb(r + o_r, g + o_g, b + o_b),
+                _ => unimplemented!(),
+            }
+        }
+    }
+}
+impl ops::Sub<Led<f64>> for Led<f64> {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self {
+        match self {
+            Led::Single(v) => match other {
+                Led::Single(o_v) => Led::Single(v - o_v),
+                _ => unimplemented!(),
+            }
+            Led::Rgb(r,g,b) => match other {
+                Led::Rgb(o_r, o_g, o_b) => Led::Rgb(r - o_r, g - o_g, b - o_b),
+                _ => unimplemented!(),
+            }
+        }
+    }
+}
+impl ops::Mul<Led<f64>> for Led<f64> {
+    type Output = Self;
+    fn mul(self, other: Self) -> Self {
+        match self {
+            Led::Single(v) => match other {
+                Led::Single(o_v) => Led::Single(v * o_v),
+                _ => unimplemented!(),
+            }
+            Led::Rgb(r,g,b) => match other {
+                Led::Rgb(o_r, o_g, o_b) => Led::Rgb(r * o_r, g * o_g, b * o_b),
+                _ => unimplemented!(),
+            }
+        }
+    }
+}
+impl ops::Div<Led<f64>> for Led<f64> {
+    type Output = Self;
+    fn div(self, other: Self) -> Self {
+        match self {
+            Led::Single(v) => match other {
+                Led::Single(o_v) => Led::Single(v / o_v),
+                _ => unimplemented!(),
+            }
+            Led::Rgb(r,g,b) => match other {
+                Led::Rgb(o_r, o_g, o_b) => Led::Rgb(r / o_r, g / o_g, b / o_b),
+                _ => unimplemented!(),
+            }
+        }
+    }
+}
