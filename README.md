@@ -1,5 +1,7 @@
 # ledctrl
 
+> :warning: **WIP, nothing runs yet**.
+
 This library is designed to be a modular interface for controlling different kinds of boards.
 Any device should be usable after simply implementing the `PinControl` trait.
 Button controls and various general light patterns will eventually be implemented.
