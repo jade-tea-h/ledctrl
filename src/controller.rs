@@ -2,7 +2,7 @@ use std::error::Error;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 
-use crate::led::{self, Led, ToDutyCycle};
+use crate::led::{self, Led};
 
 pub mod rpi;
 
@@ -12,6 +12,10 @@ enum PinState {
     High,
     Low,
     Pwm(f64),
+}
+
+pub trait ToPinState {
+    fn to_pin_state(&self);
 }
 
 pub trait PinControl<E: Error>: Sized {
@@ -44,7 +48,7 @@ where
     E: Error,
 {
     control: Led<T>,
-    queue: Box<dyn FnMut(Duration) -> Option<Led<led::Dtype>>>,
+    queue: Box<dyn FnMut(Duration) -> Option<Led<PinState>>>,
     reversed: bool,
     stamp: Instant,
 
@@ -93,7 +97,7 @@ where
                 )
             }
             Request::Fade(value, time) => {
-                let value = value.to_duty_cycle();
+                let value = value.as_pin_state();
                 self.set_pins(&value)?;
                 let step = value / EVALUATE_PERIOD;
                 let mut values = std::iter::successors(Some(value), |prev| Some(*prev - step));
@@ -101,7 +105,7 @@ where
                 self.queue = Box::new(
                     |delta| {
                         if delta > period {
-                            return Some(values.next().unwrap().as_dtype());
+                            return Some(values.next().unwrap().as_pin_state());
                         }
                         None
                     }
@@ -117,14 +121,28 @@ where
         let delta = Instant::now() - self.stamp;
         match (self.queue)(delta) {
             Some(value) => {
-                self.set_pins(&value)?;
+                self.set_pins(value)?;
                 Ok(true)
             },
             None => Ok(false),
         }
     }
 
-    fn set_pins(&mut self, value: &impl ToDutyCycle) -> Result<(), E> {
+    fn set_pins(&mut self, value: Led<PinState>) -> Result<(), E> {
+        match self.control {
+            Led::Single(mut pin) => match value {
+                Led::Single(state) => pin.set(state)?,
+                _ => !unimplemented!(),
+            }
+            Led::Rgb(mut rpin, mut gpin, mut bpin) => match value {
+                Led::Rgb(rstate, gstate, bstate) => {
+                    rpin.set(rstate)?;
+                    gpin.set(gstate)?;
+                    bpin.set(bstate)?;
+                },
+                _ => !unimplemented!(),
+            }
+        }
         // self.control.set(value, self.reversed);
         Ok(())
     }
